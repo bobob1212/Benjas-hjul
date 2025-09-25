@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8">
+  <title>Quiz / Udfordring</title>
+  <style>
+  body { 
+    margin: 0; 
+    font-family: system-ui, sans-serif; 
+    background: linear-gradient(180deg,#0b1020); 
+    color: #e9ecf1; 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center; 
+    padding: 20px; 
+  }
+
+  h1 { 
+    margin-bottom: 20px; 
+    font-size: 28px; 
+  }
+
+  .game { 
+    background: #141b34; 
+    padding: 30px;                 /* mere luft indeni */
+    border-radius: 16px;           /* rundere hjørner */
+    box-shadow: 0 8px 20px rgba(0,0,0,.4); 
+    max-width: 800px;              /* bredere boks */
+    width: 100%; 
+    margin-top: 30px; 
+    font-size: 18px;               /* lidt større tekst */
+    line-height: 1.6;              /* mere luft mellem linjer */
+  }
+
+  #scoreboard { 
+    margin-top: 20px; 
+  }
+
+  #questionBox {
+    margin-top: 25px;
+  }
+
+  #questionBox p {
+    font-size: 20px;
+    font-weight: bold;
+    margin-bottom: 15px;
+  }
+
+  button { 
+    padding: 12px 20px;            /* større knapper */
+    border-radius: 10px; 
+    border: 1px solid #2a356e; 
+    background: #1a2350; 
+    color: #e9ecf1; 
+    cursor: pointer; 
+    margin: 8px;                   /* mere luft mellem knapperne */
+    font-size: 16px; 
+  }
+
+  button:hover { 
+    filter: brightness(1.2); 
+  }
+
+  .log-box { 
+    position: fixed; 
+    bottom: 10px; 
+    right: 10px; 
+    width: 250px; 
+    height: 150px; 
+    background: rgba(0,0,0,0.6); 
+    border: 1px solid #2a356e; 
+    border-radius: 8px; 
+    font-size: 12px; 
+    overflow-y: auto; 
+    padding: 5px; 
+  }
+
+  #gamemaster { 
+    margin-top: 20px; 
+    padding: 12px; 
+    background: #1a2350; 
+    border-radius: 10px; 
+    font-weight: bold; 
+    text-align: center;             /* gør den mere som et banner */
+    font-size: 18px;
+    box-shadow: 0 0 10px rgba(0,0,0,.3);
+  }
+
+  #timer { 
+    font-size: 22px; 
+    margin: 15px 0; 
+  }
+
+  .popup { 
+    position: fixed; 
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    height: 100%; 
+    background: rgba(0,0,0,0.7); 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    z-index: 999; 
+  }
+
+  .popup-content { 
+    background: #141b34; 
+    padding: 20px; 
+    border-radius: 12px; 
+    text-align: center; 
+    max-width: 300px; 
+  }
+
+  .popup-content button { 
+    margin-top: 10px; 
+    padding: 10px 16px; 
+    border-radius: 8px; 
+    border: 1px solid #2a356e; 
+    background: #1a2350; 
+    color: #e9ecf1; 
+    cursor: pointer; 
+  }
+
+
+  </style>
+    <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getFirestore, doc, setDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
+
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyC086ay-Bxz13QMTCJWdBQOqDxV5nRHnRs",
+      authDomain: "minquiz-67564.firebaseapp.com",
+      projectId: "minquiz-67564",
+      storageBucket: "minquiz-67564.firebasestorage.app",
+      messagingSenderId: "62802662707",
+      appId: "1:62802662707:web:762869f558dc6045375a46"
+    };
+
+    // Initialize Firebase + Firestore
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    console.log("✅ Firebase & Firestore er klar!");
+
+    // Gør db globalt tilgængelig
+    window.db = db;
+    window.firestoreSetDoc = setDoc;
+    window.firestoreDoc = doc;
+    window.firestoreUpdateDoc = updateDoc;
+    window.firestoreGetDoc = getDoc;
+ 
+ </script>
+</head>
+<body>
+  <h1>❓ Quiz / Udfordring</h1>
+
+  <!-- SPIL -->
+<div class="game" id="game">
+  <button onclick="leaveGame()">⬅️ Forlad spillet</button>
+  <div id="playerInfo"></div>
+  <div id="scoreboard"></div>
+  <div id="gamemaster"></div>
+  <div id="timer">⏱️ 30</div>
+  <div id="questionBox"></div>
+</div>
+
+<div id="popup" style="display:none;" class="popup">
+  <div class="popup-content popup-row">
+    <p id="popupMessage"></p>
+    <button onclick="nextFromPopup()">Næste spørgsmål</button>
+  </div>
+</div>
+
+
+  <!-- LOG -->
+  <div class="log-box" id="log"></div>
+
+  <script>
+    // Hent spiller fra localStorage
+    let player = localStorage.getItem("quizPlayer");
+    if (!player) {
+      // Hvis ingen spiller er sat, send tilbage til Lobby
+      window.location.href = "Lobby.html";
+    }
+
+
+    // --- Variabler ---
+    let players = [player];  // kun dig selv indtil videre
+    let currentPlayer = 0;
+    let scores = {};
+    scores[player] = 0;
+
+    let questions = [
+    {
+        q: "Hvad er 2+2?",
+        options: ["3", "4", "5", "22"],
+        answer: "4"
+    },
+    {
+        q: "Hvad hedder hovedstaden i Danmark?",
+        options: ["Aarhus", "København", "Odense", "Stockholm"],
+        answer: "København"
+    }
+    ];
+
+    async function saveScore(playerName, score) {
+      try {
+        await firestoreSetDoc(
+          firestoreDoc(db, "scores", playerName),
+          { name: playerName, score: score },
+          { merge: true }
+        );
+        log("💾 Score gemt i Firestore for " + playerName);
+      } catch (e) {
+        console.error("Fejl ved gemning:", e);
+      }
+    }
+
+
+
+
+    let timerInterval;
+    let timeLeft = 30;
+
+    // --- Hjælpefunktioner ---
+    function log(msg) {
+      let logBox = document.getElementById("log");
+      logBox.innerHTML += msg + "<br>";
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+    function setGamemaster(msg) {
+      document.getElementById("gamemaster").textContent = msg;
+      log(msg);
+    }
+
+    // --- SPIL FUNKTIONER ---
+    function updateScoreboard() {
+      let html = "<h3>Pointtavle</h3><ul>";
+      players.forEach(p => {
+        if (p === player) {
+          html += "<li><b>" + p + " (dig)</b>: " + scores[p] + " point</li>";
+        } else {
+          html += "<li>" + p + ": " + scores[p] + " point</li>";
+        }
+      });
+      html += "</ul>";
+      document.getElementById("scoreboard").innerHTML = html;
+    }
+
+
+    function nextTurn() {
+      if (questions.length === 0) { endGame(); return; }
+      let playerName = players[currentPlayer];
+      setGamemaster("Det er " + playerName + "s tur 🎲");
+      drawQuestion();
+      startTimer();
+    }
+
+    function drawQuestion() {
+    let index = Math.floor(Math.random() * questions.length);
+    currentQuestion = questions.splice(index,1)[0];
+    document.getElementById("questionBox").innerHTML =
+        "<p>Spørgsmål: " + currentQuestion.q + "</p>";
+    currentQuestion.options.forEach(opt => {
+        let btn = document.createElement("button");
+        btn.textContent = opt;
+        btn.onclick = () => checkAnswer(opt);
+        document.getElementById("questionBox").appendChild(btn);
+    });
+    }
+
+
+    function checkAnswer(selected) {
+    clearInterval(timerInterval);
+    let playerName = players[currentPlayer];
+    let points = 0;
+    let msg = "";
+
+    if (selected === currentQuestion.answer) {
+        if (timeLeft > 20) points = 3;
+        else if (timeLeft > 10) points = 2;
+        else points = 1;
+
+        scores[playerName] += points;   // ✅ først opdater scoren
+        saveScore(playerName, scores[playerName]); // ✅ så gem i Firestore
+
+        msg = "✅ Korrekt! Det rigtige svar var: " + currentQuestion.answer +
+            "<br>+" + points + " point!";
+        setGamemaster(playerName + " svarede rigtigt og fik +" + points + " point!");
+    } else {
+        msg = "❌ Forkert! Det rigtige svar var: " + currentQuestion.answer;
+        setGamemaster(playerName + " svarede forkert ❌ (0 point)");
+    }
+
+    updateScoreboard();
+
+    // Vis popup
+    document.getElementById("popupMessage").innerHTML = msg;
+    document.getElementById("popup").style.display = "flex";
+    }
+
+    function nextFromPopup() {
+      document.getElementById("popup").style.display = "none";
+      nextPlayer();
+    }
+
+
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      timeLeft = 30;
+      document.getElementById("timer").textContent = "⏱️ " + timeLeft;
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        document.getElementById("timer").textContent = "⏱️ " + timeLeft;
+        if (timeLeft <= 0) {
+          clearInterval(timerInterval);
+          setGamemaster(players[currentPlayer] + " løb tør for tid ⌛ (0 point)");
+          nextPlayer();
+        }
+      }, 1000);
+    }
+
+    function answer(correct) {
+      clearInterval(timerInterval);
+      let playerName = players[currentPlayer];
+      let points = 0;
+    if (correct) {
+        if (timeLeft > 20) points = 3;
+        else if (timeLeft > 10) points = 2;
+        else points = 1;
+
+        scores[playerName] += points;   // ✅ først opdater scoren
+        saveScore(playerName, scores[playerName]); // ✅ så gem
+        setGamemaster(playerName + " svarede rigtigt og fik +" + points + " point!");
+    } else {
+        setGamemaster(playerName + " svarede forkert ❌ (0 point)");
+      }
+      updateScoreboard();
+      nextPlayer();
+    }
+
+    function nextPlayer() {
+      currentPlayer = (currentPlayer + 1) % players.length;
+      setTimeout(nextTurn, 2000);
+    }
+
+    function endGame() {
+      document.getElementById("questionBox").textContent = "Spillet er slut!";
+      let max = Math.max(...Object.values(scores));
+      let winners = players.filter(p => scores[p] === max);
+      setGamemaster("Vinderen er: " + winners.join(", ") + " 🏆 med " + max + " point!");
+      log("Spillet slut.");
+    }
+
+    function leaveGame() {
+      localStorage.removeItem("quizPlayer"); // slet navnet
+      window.location.href = "Lobby.html";   // send tilbage til lobbyen
+    }
+
+
+    // --- Start spil automatisk ---
+    updateScoreboard();
+    nextTurn();
+  </script>
+</body>
+</html>
