@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gæt Ordet - Multiplayer</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 0;
+      background: #fff;
+      color: #000;
+    }
+
+    button {
+      margin: 8px;
+      padding: 8px 16px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #eee;
+      cursor: pointer;
+    }
+
+    input, select {
+      padding: 6px;
+      border: 1px solid #444;
+      border-radius: 4px;
+    }
+
+    #lobby, #game, #endScreen { display: none; }
+
+    #popup {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.4);
+      justify-content: center; align-items: center;
+    }
+
+    #popupContent {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+      min-width: 220px;
+      box-shadow: 0 0 12px rgba(0,0,0,0.3);
+    }
+
+    #wordDisplay {
+      font-size: 28px;
+      letter-spacing: 6px;
+      margin: 14px 0;
+    }
+
+    #timer {
+      font-weight: bold;
+      margin: 10px 0;
+    }
+
+    #scoreboard {
+      margin: 20px auto;         /* centrer */
+      background: #f3f3f3;
+      border: 1px solid #aaa;
+      border-radius: 6px;
+      padding: 12px;
+      max-width: 280px;          /* 👈 gør den smallere */
+      text-align: left;          /* pænere tekstjustering */
+    }
+  </style>
+</head>
+<body>
+  <h1>🧩 Gæt Ordet</h1>
+
+  <!-- Start -->
+  <div id="start">
+    <h2>Opret spil</h2>
+    <label for="modeSelect">Vælg spiltilstand:</label>
+    <select id="modeSelect">
+      <option value="5">5 ord</option>
+      <option value="10">10 ord</option>
+      <option value="minus">10 ord (minuspoint)</option>
+    </select>
+    <br><br>
+    <button onclick="createGame()">Opret spil</button>
+    <br><br>
+    <input type="text" id="joinCode" placeholder="Indtast kode" />
+    <button onclick="joinGame()">Join spil</button>
+  </div>
+
+  <!-- Lobby -->
+  <div id="lobby">
+    <h2>Lobby</h2>
+    <p>Din kode: <span id="gameCode"></span></p>
+    <input type="text" id="newName" placeholder="Skriv dit navn" />
+    <button onclick="changeName()">Skift navn</button>
+    <p id="playerList"></p>
+    <button onclick="setReady()">✅ Klar</button>
+  </div>
+
+  <!-- Popup -->
+  <div id="popup">
+    <div id="popupContent">
+      <p id="popupMessage"></p>
+      <button onclick="closePopup()">OK</button>
+    </div>
+  </div>
+
+  <!-- Game -->
+  <div id="game">
+    <h2 id="roundInfo"></h2>
+    <div id="playerListInGame"></div>
+
+    <p id="wordDisplay"></p>
+    <input type="text" id="wholeGuess" placeholder="Skriv hele ordet" />
+    <button onclick="guessWholeWord()">Gæt</button>
+    <p id="guessResult"></p>
+    <p id="timer"></p>
+
+    <div id="scoreboard"></div>
+    <button onclick="leaveGame()">🚪 Forlad spil</button>
+  </div>
+
+  <!-- Slutskærm -->
+  <div id="endScreen">
+    <h2>🏁 Spillet er slut</h2>
+    <div id="finalScores"></div>
+    <button onclick="leaveGame()">Tilbage til start</button>
+  </div>
+
+  <!-- Firebase + Script -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getDatabase, ref, set, update, onValue, onDisconnect, remove }
+      from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+
+    // ---------- Firebase ----------
+    const firebaseConfig = {
+      apiKey: "AIzaSyDjRJyWfmS6l1BaJvGcXa30t1s0P8YfOaw",
+      authDomain: "slaa-en-6er.firebaseapp.com",
+      databaseURL: "https://slaa-en-6er-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "slaa-en-6er",
+      storageBucket: "slaa-en-6er.firebasestorage.app",
+      messagingSenderId: "797063178229",
+      appId: "1:797063178229:web:d54ea194d3fa682486a2bc"
+    };
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // ---------- Globale ----------
+    let gameId=null, playerId=null, playerName=null;
+    let hasStartedGame=false;
+    let currentRound=1;
+    let totalRounds=5;
+    let currentWord="", timeLeft=0, timerId=null;
+    let MINUS_MODE=false;
+
+    // ---------- Indstillinger ----------
+    const MAX_PLAYERS=2;
+    const ROUND_TIME=60;
+    const MINUS_POINTS=1;
+    const PLUS_POINTS=1;
+
+    const WORDS=[
+      "OLIVER","KAT","HUS","SOL","MÅNE","STOL","BORD","BIL",
+      "GULV","VINDUE","DØR","FODBOLD","SKOLE","LÆRER","FRUGT",
+      "ÆBLE","PÆRE","BANAN","TOMAT","SALAT","OST","KAGE","HAV",
+      "BJERG","SKOV","SAND","STEN","REGN","SNESTORM","LYN"
+    ];
+
+    // ---------- Popup ----------
+    window.showPopup=msg=>{
+      document.getElementById("popupMessage").innerText=msg;
+      document.getElementById("popup").style.display="flex";
+    };
+    window.closePopup=()=>document.getElementById("popup").style.display="none";
+
+    // ---------- Hjælpere ----------
+    function autoDeleteGameWhenEmpty(){
+      const gRef=ref(db,"games/"+gameId);
+      onValue(gRef,snap=>{
+        const game=snap.val();
+        if(game && (!game.players || Object.keys(game.players).length===0)){
+          remove(gRef);
+        }
+      });
+    }
+
+    // Brugte ord, så vi ikke gentager os
+    let usedWords = new Set();
+    function pickWordNoRepeat() {
+      let available = WORDS.filter(w => !usedWords.has(w));
+      if (available.length === 0) {
+        usedWords.clear();
+        available = [...WORDS];
+      }
+      const pool = available.slice();
+      const maxRemovable = Math.min(2, Math.max(0, pool.length - 1));
+      const removeCount = Math.floor(Math.random() * (maxRemovable + 1));
+      for (let i = 0; i < removeCount; i++) {
+        pool.splice(Math.floor(Math.random() * pool.length), 1);
+      }
+      const choice = pool[Math.floor(Math.random() * pool.length)];
+      usedWords.add(choice);
+      return choice;
+    }
+
+    function maskWord(word){
+      const arr = word.split("");
+      const revealCount = arr.length <= 3 ? 1 : 2;
+      const revealed = new Set();
+      while (revealed.size < revealCount) {
+        revealed.add(Math.floor(Math.random() * arr.length));
+      }
+      return arr.map((ch,i)=>revealed.has(i)?ch:"_").join(" ");
+    }
+
+    function startTimer(){
+      stopTimer();
+      timeLeft=ROUND_TIME;
+      renderTimer();
+      timerId=setInterval(()=>{
+        timeLeft--;
+        renderTimer();
+        if(timeLeft<=0){
+          stopTimer();
+          document.getElementById("guessResult").innerText=`⏳ Tid ud! Ordet var: ${currentWord}`;
+          nextRound();
+        }
+      },1000);
+    }
+    function stopTimer(){ if(timerId){clearInterval(timerId);timerId=null;} }
+    function renderTimer(){ document.getElementById("timer").innerText=`Tid: ${timeLeft} sek.`; }
+
+    function addPoints(delta){
+      const pRef=ref(db,"games/"+gameId+"/players/"+playerId);
+      onValue(pRef,snap=>{
+        const me=snap.val()||{};
+        update(pRef,{score:(me.score||0)+delta});
+      },{onlyOnce:true});
+    }
+
+    // ---------- Start / Join / Lobby ----------
+    window.createGame=function(){
+      const mode=document.getElementById("modeSelect").value;
+
+      gameId=Math.floor(1000+Math.random()*9000);
+      playerId="p"+Date.now();
+      playerName="Spiller 1";
+
+      set(ref(db,"games/"+gameId),{
+        status:"venter",
+        mode:mode,
+        players:{[playerId]:{name:playerName,ready:false,score:0}}
+      });
+
+      const gameRef=ref(db,"games/"+gameId);
+      onDisconnect(gameRef).remove();
+      const playerRef=ref(db,"games/"+gameId+"/players/"+playerId);
+      onDisconnect(playerRef).remove();
+
+      document.getElementById("start").style.display="none";
+      document.getElementById("lobby").style.display="block";
+      document.getElementById("gameCode").innerText=gameId;
+
+      listenLobby();
+      autoDeleteGameWhenEmpty();
+    };
+
+    window.joinGame=function(){
+      gameId=document.getElementById("joinCode").value.trim();
+      if(!gameId) return showPopup("Indtast en kode!");
+      const playersRef=ref(db,"games/"+gameId+"/players");
+      onValue(playersRef,snap=>{
+        const players=snap.val()||{};
+        const count=Object.keys(players).length;
+        if(count>=MAX_PLAYERS) return showPopup("Lobbyen er fuld!");
+
+        playerId="p"+Date.now();
+        playerName="Spiller "+(count+1);
+
+        update(ref(db,"games/"+gameId+"/players/"+playerId),{name:playerName,ready:false,score:0});
+        const playerRef=ref(db,"games/"+gameId+"/players/"+playerId);
+        onDisconnect(playerRef).remove();
+
+        document.getElementById("start").style.display="none";
+        document.getElementById("lobby").style.display="block";
+        document.getElementById("gameCode").innerText=gameId;
+
+        listenLobby();
+        autoDeleteGameWhenEmpty();
+      },{onlyOnce:true});
+    };
+
+    window.changeName=function(){
+      const newName=document.getElementById("newName").value.trim();
+      if(!newName) return;
+      update(ref(db,"games/"+gameId+"/players/"+playerId),{name:newName});
+      playerName=newName;
+    };
+
+    window.setReady=function(){
+      update(ref(db,"games/"+gameId+"/players/"+playerId),{ready:true});
+    };
+
+    function listenLobby(){
+      onValue(ref(db,"games/"+gameId),snap=>{
+        const game=snap.val(); if(!game) return;
+        const players=game.players||{};
+        let list="Spillere:<br>";
+        let allReady=true;
+        for(const pid in players){
+          const p=players[pid];
+          list+=`${p.name} ${p.ready?"✅":"❌"}<br>`;
+          if(!p.ready) allReady=false;
+        }
+        document.getElementById("playerList").innerHTML=list;
+        if(allReady && !hasStartedGame){hasStartedGame=true;startGame();}
+      });
+    }
+
+    // ---------- Spil ----------
+    function startGame(){
+      onValue(ref(db,"games/"+gameId+"/mode"),snap=>{
+        const mode=snap.val();
+        if(mode==="5"){ totalRounds=5; MINUS_MODE=false; }
+        else if(mode==="10"){ totalRounds=10; MINUS_MODE=false; }
+        else if(mode==="minus"){ totalRounds=10; MINUS_MODE=true; }
+
+        currentRound=1;
+        document.getElementById("lobby").style.display="none";
+        document.getElementById("game").style.display="block";
+        listenScoreboard();
+        startRound();
+      },{onlyOnce:true});
+    }
+
+    function startRound(){
+      if(currentRound>totalRounds) return endGame();
+      document.getElementById("roundInfo").innerText=`Runde ${currentRound}/${totalRounds}`;
+      currentWord=pickWordNoRepeat();
+      document.getElementById("wordDisplay").innerText=maskWord(currentWord);
+      document.getElementById("guessResult").innerText="";
+      document.getElementById("wholeGuess").value="";
+      startTimer();
+    }
+
+    window.guessWholeWord=function(){
+      const guess=document.getElementById("wholeGuess").value.toUpperCase().trim();
+      if(!guess) return;
+      stopTimer();
+      if(guess===currentWord){
+        document.getElementById("guessResult").innerText="✔️ Rigtigt!";
+        addPoints(PLUS_POINTS);
+      }else{
+        document.getElementById("guessResult").innerText=`❌ Forkert! Ordet var: ${currentWord}`;
+        if(MINUS_MODE) addPoints(-MINUS_POINTS);
+      }
+      nextRound();
+    };
+
+    function nextRound(){
+      currentRound++;
+      if(currentRound>totalRounds){setTimeout(endGame,1200);}
+      else {setTimeout(startRound,1200);}
+    }
+
+    function listenScoreboard(){
+      const playersRef=ref(db,"games/"+gameId+"/players");
+      onValue(playersRef,snap=>{
+        const players=snap.val()||{};
+        const sorted=Object.values(players).sort((a,b)=>(b.score||0)-(a.score||0));
+        let html="<h3>Scoreboard</h3>";
+        for(const p of sorted) html+=`${p.name}: ${p.score||0} point<br>`;
+        document.getElementById("scoreboard").innerHTML=html;
+      });
+    }
+
+    function endGame(){
+      document.getElementById("game").style.display="none";
+      document.getElementById("endScreen").style.display="block";
+      const playersRef=ref(db,"games/"+gameId+"/players");
+      onValue(playersRef,snap=>{
+        const players=snap.val()||{};
+        const sorted=Object.values(players).sort((a,b)=>(b.score||0)-(a.score||0));
+        let html="<h3>Slutstilling</h3>";
+        for(const p of sorted) html+=`${p.name}: ${p.score||0} point<br>`;
+        document.getElementById("finalScores").innerHTML=html;
+      },{onlyOnce:true});
+    }
+
+    // ---------- Forlad spil ----------
+    window.leaveGame=function(){
+      if(gameId&&playerId){
+        remove(ref(db,"games/"+gameId+"/players/"+playerId));
+        const playersRef=ref(db,"games/"+gameId+"/players");
+        onValue(playersRef,snap=>{
+          if(!snap.val()) remove(ref(db,"games/"+gameId));
+        },{onlyOnce:true});
+      }
+      stopTimer();
+      hasStartedGame=false;
+      gameId=null;playerId=null;playerName=null;
+      currentRound=1;
+      document.getElementById("endScreen").style.display="none";
+      document.getElementById("game").style.display="none";
+      document.getElementById("lobby").style.display="none";
+      document.getElementById("start").style.display="block";
+    };
+  </script>
+</body>
+</html>
