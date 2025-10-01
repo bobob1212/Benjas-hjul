@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Slå en 6'er - Multiplayer</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; }
+    #lobby, #game { display: none; }
+    button { margin: 10px; padding: 10px 20px; }
+
+    /* Popup styling */
+    #popup {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6);
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+    #popupContent {
+      background:white;
+      padding:20px;
+      border-radius:10px;
+      min-width:250px;
+      text-align:center;
+      box-shadow:0 0 15px rgba(0,0,0,0.5);
+    }
+    #popup button {
+      margin-top:15px;
+      padding:8px 20px;
+    }
+
+    /* Spillerliste i spillet */
+    #playerListInGame {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: #eee;
+      padding: 10px;
+      border-radius: 5px;
+      text-align: left;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎲 Slå en 6'er</h1>
+
+  <!-- Startskærm -->
+  <div id="start">
+    <button onclick="createGame()">Opret spil</button>
+    <br><br>
+    <input type="text" id="joinCode" placeholder="Indtast kode">
+    <button onclick="joinGame()">Join spil</button>
+  </div>
+
+  <!-- Lobby -->
+  <div id="lobby">
+    <h2>Lobby</h2>
+    <p>Din kode: <span id="gameCode"></span></p>
+
+    <input type="text" id="newName" placeholder="Skriv dit navn">
+    <button onclick="changeName()">Skift navn</button>
+
+    <p id="playerList"></p>
+
+    <button onclick="setReady()">✅ Klar</button>
+  </div>
+
+  <!-- Popup -->
+  <div id="popup">
+    <div id="popupContent">
+      <p id="popupMessage"></p>
+      <button onclick="closePopup()">OK</button>
+    </div>
+  </div>
+
+  <!-- Spillet -->
+  <div id="game">
+    <h2>Selve spillet</h2>
+    <div id="playerListInGame"><strong>Spillere:</strong><br></div>
+    <p id="gameInfo"></p>
+
+    <!-- Terningeknap -->
+    <button onclick="rollDice()">🎲 Slå terning</button>
+    <p id="myRoll"></p>
+
+    <!-- Scoreboard -->
+    <div id="scoreboard"></div>
+
+    <button onclick="leaveGame()">🚪 Log ud</button>
+  </div>
+
+  <!-- Firebase + script -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
+    import { getDatabase, ref, set, update, onValue, onDisconnect, remove } 
+      from "https://www.gstatic.com/firebasejs/9.22.2/firebase-database.js";
+
+    // 🔑 Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyDjRJyWfmS6l1BaJvGcXa30t1s0P8YfOaw",
+      authDomain: "slaa-en-6er.firebaseapp.com",
+      databaseURL: "https://slaa-en-6er-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "slaa-en-6er",
+      storageBucket: "slaa-en-6er.firebasestorage.app",
+      messagingSenderId: "797063178229",
+      appId: "1:797063178229:web:d54ea194d3fa682486a2bc"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    let gameId = null;
+    let playerId = null;
+    let playerName = null;
+
+    // 👉 Slet hele spillet hvis ingen spillere tilbage
+    function autoDeleteGameWhenEmpty() {
+      const gameRef = ref(db, "games/" + gameId);
+      onValue(gameRef, snapshot => {
+        const game = snapshot.val();
+        if (game) {
+          const players = game.players;
+          if (!players || Object.keys(players).length === 0) {
+            remove(gameRef);
+          }
+        }
+      });
+    }
+
+    // Opret spil
+    window.createGame = function () {
+      gameId = Math.floor(1000 + Math.random() * 9000);
+      playerId = "p" + Date.now();
+      playerName = "Spiller 1";
+
+      set(ref(db, "games/" + gameId), {
+        status: "venter",
+        players: {
+          [playerId]: { name: playerName, ready: false }
+        }
+      });
+
+      const gameRef = ref(db, "games/" + gameId);
+      onDisconnect(gameRef).remove();
+      const playerRef = ref(db, "games/" + gameId + "/players/" + playerId);
+      onDisconnect(playerRef).remove();
+
+      document.getElementById("start").style.display = "none";
+      document.getElementById("lobby").style.display = "block";
+      document.getElementById("gameCode").innerText = gameId;
+      listenLobby();
+      autoDeleteGameWhenEmpty();
+    }
+
+    // Join spil (max 2 spillere til test)
+    window.joinGame = function () {
+      gameId = document.getElementById("joinCode").value;
+      if (!gameId) return showPopup("Indtast en kode!");
+
+      const playersRef = ref(db, "games/" + gameId + "/players");
+      onValue(playersRef, snapshot => {
+        const players = snapshot.val() || {};
+        const playerCount = Object.keys(players).length;
+
+        if (playerCount >= 2) {
+          showPopup("Der er allerede 2 spillere i lobbyen!");
+          return; 
+        }
+
+        playerId = "p" + Date.now();
+        playerName = "Spiller " + (playerCount + 1);
+
+        update(ref(db, "games/" + gameId + "/players/" + playerId), {
+          name: playerName,
+          ready: false
+        });
+
+        const playerRef = ref(db, "games/" + gameId + "/players/" + playerId);
+        onDisconnect(playerRef).remove();
+
+        document.getElementById("start").style.display = "none";
+        document.getElementById("lobby").style.display = "block";
+        document.getElementById("gameCode").innerText = gameId;
+        listenLobby();
+        autoDeleteGameWhenEmpty();
+      }, { onlyOnce: true });
+    }
+
+    // Skift navn
+    window.changeName = function () {
+      const newName = document.getElementById("newName").value;
+      if (!newName) return;
+      update(ref(db, "games/" + gameId + "/players/" + playerId), { name: newName });
+      playerName = newName;
+    }
+
+    // Klar
+    window.setReady = function () {
+      update(ref(db, "games/" + gameId + "/players/" + playerId), { ready: true });
+    }
+
+    // Forlad spil
+    window.leaveGame = function () {
+      const playerRef = ref(db, "games/" + gameId + "/players/" + playerId);
+      remove(playerRef);
+      const playersRef = ref(db, "games/" + gameId + "/players");
+      onValue(playersRef, snapshot => {
+        if (!snapshot.val()) {
+          remove(ref(db, "games/" + gameId));
+        }
+      }, { onlyOnce: true });
+
+      document.getElementById("game").style.display = "none";
+      document.getElementById("start").style.display = "block";
+      gameId = null; playerId = null; playerName = null;
+    }
+
+    // Popup funktioner
+    window.showPopup = function(message) {
+      document.getElementById("popupMessage").innerText = message;
+      document.getElementById("popup").style.display = "flex";
+    }
+    window.closePopup = function() {
+      document.getElementById("popup").style.display = "none";
+    }
+
+    // Lobby listener
+    function listenLobby() {
+      onValue(ref(db, "games/" + gameId), snapshot => {
+        const game = snapshot.val();
+        if (!game) return;
+
+        const players = game.players || {};
+        let list = "Spillere i lobby:<br>";
+        let allReady = true;
+        for (const pid in players) {
+          const p = players[pid];
+          list += p.name + (p.ready ? " ✅" : " ❌") + "<br>";
+          if (!p.ready) allReady = false;
+        }
+        document.getElementById("playerList").innerHTML = list;
+
+        // Når alle er klar → skift til spillet
+        if (allReady) {
+          startGame();
+        }
+      });
+    }
+
+    // --- 🔹 SPIL-FUNKTIONER (ALTID NEDERST) ---
+    // Start spillet
+    function startGame() {
+      document.getElementById("lobby").style.display = "none";
+      document.getElementById("game").style.display = "block";
+      listenGame();
+    }
+
+    // Slå terning
+    window.rollDice = function () {
+      const roll = Math.floor(Math.random() * 6) + 1;
+
+      const playerRef = ref(db, "games/" + gameId + "/players/" + playerId);
+      onValue(playerRef, snapshot => {
+        const me = snapshot.val();
+        let newScore = (me.score || 0) + roll;
+
+        update(playerRef, {
+          roll: roll,
+          score: newScore
+        });
+      }, { onlyOnce: true });
+    }
+
+    // Scoreboard & spil-lytning
+    function listenGame() {
+      const playersRef = ref(db, "games/" + gameId + "/players");
+      onValue(playersRef, snapshot => {
+        const players = snapshot.val() || {};
+        let board = "<h3>🎯 Scoreboard</h3>";
+        let listHtml = "<strong>Spillere:</strong><br>";
+        for (const pid in players) {
+          const p = players[pid];
+          listHtml += p.name + "<br>";
+          board += p.name + ": " + (p.score || 0) + " point" +
+                   (p.roll ? " (slog: " + p.roll + ")" : "") + "<br>";
+
+          if (pid === playerId && p.roll) {
+            document.getElementById("myRoll").innerText = "Du slog: " + p.roll;
+          }
+        }
+        document.getElementById("playerListInGame").innerHTML = listHtml;
+        document.getElementById("scoreboard").innerHTML = board;
+      });
+    }
+  </script>
+</body>
+</html>
+
+
+
+
+
+
