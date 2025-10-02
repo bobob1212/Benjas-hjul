@@ -5,13 +5,13 @@
   <meta charset="UTF-8">
   <title>Sandt eller Falsk Historie - Multiplayer</title>
   <style>
-/* === Base layout === */ body{font-family:Arial,sans-serif;text-align:center;}  
+/* === Base layout === */ body{ font-family:Arial,sans-serif;text-align:center;background:#1e293b;color:#f1f5f9;margin:0;padding:0;}
 /* === Skjulte sektioner === */ #lobby,#truthGame,#popup,#winnerScreen{display:none;}  
 /* === Knapper === */ button{margin:10px;padding:10px 20px;}  
-/* === Tekstfelter === */ textarea{width:80%;height:60px;}  
+/* === Tekstfelter === */ textarea{width:30%;height:60px;border-radius:6px;padding:10px;font-size:15px;font-weight:500;resize:none;display:block;margin:0 auto;}
 /* === Popup overlay === */ #popup{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);justify-content:center;align-items:center;z-index:1000;}  
 /* === Popup indhold === */ #popupContent{background:white;padding:20px;border-radius:10px;min-width:250px;text-align:center;box-shadow:0 0 15px rgba(0,0,0,0.5);}  
-/* === Telefonvenlig styling === */ @media(max-width:600px){h1{font-size:22px;}h2{font-size:18px;}textarea{height:80px;}button{width:90%;max-width:300px;}}  
+/* === Telefonvenlig styling === */ @media(max-width:600px){h1{font-size:22px;}h2{font-size:18px;}textarea{width:80%;height:120px;font-size:14px}button{width:90%;max-width:300px;}}
   </style>
 </head>
 <body>
@@ -227,7 +227,7 @@
         document.getElementById("playerList").innerHTML = list;
 
         // kræver mindst 2 spillere
-        if (allReady && game.status === "venter" && Object.keys(players).length >= 2) {
+        if (allReady && game.status === "venter" && Object.keys(players).length >= 1) {
           update(ref(db, "games/" + gameId), { status: "spiller" });
           startTruthGame();
         }
@@ -311,7 +311,7 @@
       document.getElementById("waitMessage").innerText = "⏳ Vent til du kan svare...";
     }
 
-      updateScoreboard(game.players);
+      updateScoreboard(game.players, game.turn);
     });
   }
 
@@ -420,24 +420,39 @@ async function checkRoundEnd() {
       }, {onlyOnce:true});
     }
 
-    function updateScoreboard(players) {
+    function updateScoreboard(players, currentTurn) {
       if (!players) {
         document.getElementById("truthScoreboard").innerHTML =
-          "<h3>Scoreboard</h3><p>Ingen spillere endnu...</p>";
+          "<h3 style='text-align:center;'>Scoreboard</h3><p style='text-align:center;'>Ingen spillere endnu...</p>";
         return;
       }
-      let html = "<h3>Scoreboard</h3>";
+
+      let html = "<h3 style='text-align:center;'>Scoreboard</h3>";
+
       const ids = Object.keys(players);
       let index = 1;
       for (const pid of ids) {
-        html += index + ". " + players[pid].name + ": " + (players[pid].score || 0) + " point<br>";
+        const marker =
+          pid === currentTurn
+            ? "<span style='display:inline-flex; align-items:center; height:1em;'>⬅️ (tur)</span>"
+            : "<span style='display:inline-flex; align-items:center; height:1em;'></span>";
+
+        html +=
+          "<div style='display:flex; justify-content:center; align-items:center; gap:10px; margin:2px 0; font-size:16px; line-height:1.2;'>" +
+            "<span style='width:24px; text-align:right;'>" + index + ".</span>" +
+            "<span>" + players[pid].name + ": " + (players[pid].score || 0) + " point</span>" +
+            // fast “kolonne” til markør, så layout ikke hopper
+            "<span style='width:70px; text-align:left; display:inline-flex; align-items:center; height:1em;'>" + marker + "</span>" +
+          "</div>";
         index++;
       }
+
       document.getElementById("truthScoreboard").innerHTML = html;
     }
   </script>
 </body>
 </html>
+
 
 
 
