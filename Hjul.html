@@ -18,10 +18,11 @@
     .guide{background:#1a2350;border:1px solid #2a356e;border-radius:12px;padding:12px;font-size:14px;line-height:1.4;color:var(--muted)}
     .wrap{display:grid;grid-template-columns:1.2fr .8fr;gap:18px}
     @media (max-width:600px){.wrap{grid-template-columns:1fr;}
-    .controls{flex-direction:column;gap:6px}
-    .controls input[type="text"]{min-width:100%}
-    .controls button{width:100%;padding:14px;font-size:16px}
+    .controls{flex-wrap:wrap;gap:6px}
+    .controls input[type="text"]{flex:1 1 100%}
+    .controls button{flex:1 1 calc(50% - 6px);padding:10px;font-size:14px}
     #spinBtn{flex:1 1 100%;font-size:16px;padding:12px}}
+
                       
 
 
